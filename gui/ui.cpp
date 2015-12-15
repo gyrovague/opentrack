@@ -23,7 +23,8 @@ MainWindow::MainWindow() :
     pose_update_timer(this),
     kbd_quit(QKeySequence("Ctrl+Q"), this),
     no_feed_pixmap(":/images/no-feed.png"),
-    is_refreshing_profiles(false)
+    is_refreshing_profiles(false),
+    keys_paused(false)
 {
     ui.setupUi(this);
 
@@ -108,8 +109,38 @@ MainWindow::MainWindow() :
                              "Configuration not saved.",
                              "Can't create configuration directory! Expect major malfunction.",
                              QMessageBox::Ok, QMessageBox::NoButton);
-
+    
+    connect(this, &MainWindow::emit_start_tracker,
+            this, [&]() -> void { if (keys_paused) return; qDebug() << "start tracker"; startTracker(); },
+            Qt::QueuedConnection);
+    
+    connect(this, &MainWindow::emit_stop_tracker,
+            this, [&]() -> void { if (keys_paused) return; qDebug() << "stop tracker"; stopTracker(); },
+            Qt::QueuedConnection);
+    
+    connect(this, &MainWindow::emit_toggle_tracker,
+            this, [&]() -> void { if (keys_paused) return; qDebug() << "toggle tracker"; if (work) stopTracker(); else startTracker(); },
+            Qt::QueuedConnection);
+    
+    register_shortcuts();
+    
     ui.btnStartTracker->setFocus();
+}
+
+void MainWindow::register_shortcuts()
+{
+    using t_shortcut = std::tuple<key_opts&, Shortcuts::fun>;
+    
+    std::vector<t_shortcut> keys {
+        t_shortcut(s.key_start_tracking, [&]() -> void { emit_start_tracker(); }),
+        t_shortcut(s.key_stop_tracking, [&]() -> void { emit_stop_tracker(); }),
+        t_shortcut(s.key_toggle_tracking, [&]() -> void { emit_toggle_tracker(); }),
+    };
+    
+    global_shortcuts.reload(keys);
+    
+    if (work)
+        work->reload_shortcuts();
 }
 
 bool MainWindow::get_new_config_name_from_dialog(QString& ret)
@@ -261,6 +292,9 @@ void MainWindow::reload_options()
 }
 
 void MainWindow::startTracker() {
+    if (work)
+        return;
+    
     // tracker dtor needs run first
     work = nullptr;
 
@@ -281,7 +315,7 @@ void MainWindow::startTracker() {
         return;
     }
     
-    work = std::make_shared<Work>(s, pose, libs, this, winId());
+    work = std::make_shared<Work>(s, pose, libs, winId());
     
     reload_options();
 
@@ -306,7 +340,10 @@ void MainWindow::startTracker() {
     ui.btnStopTracker->setFocus();
 }
 
-void MainWindow::stopTracker( ) {
+void MainWindow::stopTracker() {
+    if (!work)
+        return;
+    
     //ui.game_name->setText("Not connected");
 
     pose_update_timer.stop();
@@ -409,7 +446,6 @@ bool mk_dialog(mem<dylib> lib, mem<t>& orig)
 
         orig = dialog;
         dialog->show();
-        dialog->raise();
 
         QObject::connect(dialog.get(), &plugin_api::detail::BaseDialog::closing, [&]() -> void { orig = nullptr; });
 
@@ -436,7 +472,7 @@ void MainWindow::showFilterSettings() {
 }
 
 template<typename t, typename... Args>
-bool mk_window(mem<t>* place, Args... params)
+bool mk_window(mem<t>* place, Args&&... params)
 {
     if (*place && (*place)->isVisible())
     {
@@ -446,21 +482,23 @@ bool mk_window(mem<t>* place, Args... params)
     }
     else
     {
-        *place = std::make_shared<t>(params...);
+        *place = std::make_shared<t>(std::forward<Args>(params)...);
         (*place)->setWindowFlags(Qt::Dialog);
         (*place)->show();
-        (*place)->raise();
         return true;
     }
 }
 
 void MainWindow::show_options_dialog() {
-    if (mk_window(&options_widget))
+    if (mk_window(&options_widget,
+                  s,
+                  [&]() -> void { register_shortcuts(); },
+                  [&](bool flag) -> void { keys_paused = flag; }))
         connect(options_widget.get(), SIGNAL(reload()), this, SLOT(reload_options()));
 }
 
 void MainWindow::showCurveConfiguration() {
-    mk_window<MapWidget, Mappings&, main_settings&>(&mapping_widget, pose, s);
+    mk_window(&mapping_widget, pose, s);
 }
 
 void MainWindow::exit() {
@@ -487,27 +525,6 @@ void MainWindow::profileSelected(QString name)
         set_title();
         load_settings();
     }
-}
-
-void MainWindow::shortcutRecentered()
-{
-    qDebug() << "Center";
-    if (work)
-        work->tracker->center();
-}
-
-void MainWindow::shortcutToggled()
-{
-    qDebug() << "Toggle";
-    if (work)
-        work->tracker->toggle_enabled();
-}
-
-void MainWindow::shortcutZeroed()
-{
-    qDebug() << "Zero";
-    if (work)
-        work->tracker->zero();
 }
 
 void MainWindow::ensure_tray()

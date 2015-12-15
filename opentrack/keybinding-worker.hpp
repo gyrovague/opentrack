@@ -19,6 +19,7 @@
 #include <QThread>
 #include <QMutex>
 #include <QWidget>
+#include <QMainWindow>
 #include <functional>
 #include <vector>
 
@@ -45,11 +46,12 @@ struct OPENTRACK_EXPORT KeybindingWorker : private QThread
 private:
     LPDIRECTINPUT8 din;
     LPDIRECTINPUTDEVICE8 dinkeyboard;
-    win32_joy_ctx& joy_ctx;
+    win32_joy_ctx joy_ctx;
     volatile bool should_quit;
-    using fun = std::function<void(Key&)>;
-    std::vector<fun> receivers;
+    using fun = std::function<void(const Key&)>;
+    std::vector<std::unique_ptr<fun>> receivers;
     QMutex mtx;
+    QMainWindow fake_main_window;
 
     void run() override;
     KeybindingWorker();
@@ -57,27 +59,23 @@ private:
     KeybindingWorker(const KeybindingWorker&) = delete;
     KeybindingWorker& operator=(KeybindingWorker&) = delete;
     static KeybindingWorker& make();
-    fun* _add_receiver(fun receiver);
+    fun* _add_receiver(fun &receiver);
     void remove_receiver(fun* pos);
     ~KeybindingWorker();
 public:
     class Token
     {
         fun* pos;
-        //Token(const Token&) = delete;
+        Token(const Token&) = delete;
         Token& operator=(Token&) = delete;
     public:
-        Token(fun receiver)
-        {
-            pos = make()._add_receiver(receiver);
-        }
         ~Token()
         {
             make().remove_receiver(pos);
         }
+        Token(fun receiver)
+        {
+            pos = make()._add_receiver(receiver);
+        }
     };
-    static Token add_receiver(fun receiver)
-    {
-        return Token(receiver);
-    }
 };

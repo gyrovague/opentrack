@@ -18,12 +18,13 @@
 #include <QDebug>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QMainWindow>
 
 namespace std {
 template<>
 struct hash<QString>
 {
-    std::size_t operator()(const QString& value) const
+    inline std::size_t operator()(const QString& value) const
     {
         return qHash(value);
     }
@@ -49,65 +50,54 @@ struct OPENTRACK_EXPORT win32_joy_ctx
 
     void poll(fn f);
     bool poll_axis(const QString& guid, int axes[8]);
-    ~win32_joy_ctx();
     std::vector<joy_info> get_joy_info();
-    static win32_joy_ctx& make();
+    
     win32_joy_ctx(const win32_joy_ctx&) = delete;
     win32_joy_ctx& operator=(const win32_joy_ctx&) = delete;
     
+    win32_joy_ctx();
+    ~win32_joy_ctx();
+    
 private:
-    enum { joylist_refresh_ms = 250 };
+    enum { joylist_refresh_ms = 100 };
     
     QMutex mtx;
     Timer timer_joylist;
+    QMainWindow fake_main_window;
+    LPDIRECTINPUT8 di;
     
     static QString guid_to_string(const GUID guid);
-    static LPDIRECTINPUT8& dinput_handle();
-    win32_joy_ctx();
     void release();
     void refresh(bool first);
     
-    struct joy;
-    static std::unordered_map<QString, std::shared_ptr<joy>>& joys();
-    
     struct joy
     {
-        enum { first_event_delay_ms = 3000 };
-        
         LPDIRECTINPUTDEVICE8 joy_handle;
         QString guid, name;
         bool pressed[128];
         Timer first_timer;
-        bool first;
+        DIJOYSTATE2 js_old;
 
-        joy(LPDIRECTINPUTDEVICE8 handle, const QString& guid, const QString& name, bool first)
-            : joy_handle(handle), guid(guid), name(name), first(first)
-        {
-            qDebug() << "got joy" << guid;
-            for (int i = 0; i < 128; i++)
-                pressed[i] = false;
-        }
-
-        ~joy()
-        {
-            qDebug() << "nix joy" << guid;
-            release();
-        }
+        joy(LPDIRECTINPUTDEVICE8 handle, const QString& guid, const QString& name);
+        ~joy();
 
         void release();
         bool poll(fn f);
     };
+    
+    std::unordered_map<QString, std::shared_ptr<joy>> joys;
 
     class enum_state
     {
         std::unordered_map<QString, std::shared_ptr<joy>> joys;
-        bool first;
+        QMainWindow& fake_main_window;
+        LPDIRECTINPUT8 di;
         
         std::vector<QString> all;
         static BOOL CALLBACK EnumJoysticksCallback(const DIDEVICEINSTANCE* pdidInstance, VOID* pContext);
         static BOOL CALLBACK EnumObjectsCallback(const DIDEVICEOBJECTINSTANCE* pdidoi, VOID* ctx);
     public:
-        enum_state(std::unordered_map<QString, std::shared_ptr<joy>>& joys, bool first, QMutex &mtx);
+        enum_state(std::unordered_map<QString, std::shared_ptr<joy>>& joys, QMutex &mtx, QMainWindow& fake_main_window, LPDIRECTINPUT8 di);
     };
 };
 

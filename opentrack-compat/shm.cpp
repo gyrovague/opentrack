@@ -5,11 +5,12 @@
  * copyright notice and this permission notice appear in all copies.
  */
 
-#include <cstring>
-#include <stdio.h>
 #include "shm.h"
 
 #if defined(_WIN32)
+
+#include <cstring>
+#include <stdio.h>
 
 #include <accctrl.h>
 #include <aclapi.h>
@@ -92,7 +93,6 @@ struct secattr
         attrs.lpSecurityDescriptor = pSD;
         attrs.nLength = sizeof(SECURITY_ATTRIBUTES);
 
-        fprintf(stderr, "security descriptor ok\n");
         fflush(stderr);
 
         return;
